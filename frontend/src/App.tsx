@@ -2,7 +2,21 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { cancelBooking, createBooking, findBooking, getHotel, searchHotels } from './api/hotels'
 import type { Booking, Hotel, StayDates } from './api/hotels'
+import goaPhoto from './assets/travel/goa-coast.jpg'
+import jaipurPhoto from './assets/travel/jaipur-haveli.jpg'
+import kochiPhoto from './assets/travel/kochi-waterfront.jpg'
+import manaliPhoto from './assets/travel/manali-lodge.jpg'
+import udaipurPhoto from './assets/travel/udaipur-lake.jpg'
+import { buildTripPlan, getDestinationGuide, getSeasonAdvice } from './data/destinationGuides'
 import './App.css'
+
+const destinationPhotos: Record<string, string> = {
+  goa: goaPhoto,
+  jaipur: jaipurPhoto,
+  kochi: kochiPhoto,
+  manali: manaliPhoto,
+  udaipur: udaipurPhoto,
+}
 
 function localDateString(date: Date) {
   const year = date.getFullYear()
@@ -26,6 +40,14 @@ function App() {
   const [checkOut, setCheckOut] = useState(tomorrow)
   const [hotels, setHotels] = useState<Hotel[]>([])
   const [selectedHotel, setSelectedHotel] = useState<Hotel | null>(null)
+  const [confirmedHotel, setConfirmedHotel] = useState<Hotel | null>(null)
+  const [savedHotels, setSavedHotels] = useState<Hotel[]>([])
+  const [compareHotels, setCompareHotels] = useState<Hotel[]>([])
+  const [compareError, setCompareError] = useState('')
+  const [savedError, setSavedError] = useState('')
+  const [isLoadingSaved, setIsLoadingSaved] = useState(false)
+  const [compareMode, setCompareMode] = useState(false)
+  const [showComparison, setShowComparison] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
   const [isLoadingDetails, setIsLoadingDetails] = useState(false)
   const [error, setError] = useState('')
@@ -50,15 +72,67 @@ function App() {
     }
   })
   const dates: StayDates | undefined = checkIn && checkOut ? { checkIn, checkOut } : undefined
+  const visibleHotels = showSavedOnly ? savedHotels : hotels
 
-  function toggleFavorite(hotelId: number) {
-    setFavorites((current) => {
-      const next = current.includes(hotelId)
-        ? current.filter((id) => id !== hotelId)
-        : [...current, hotelId]
-      localStorage.setItem('stillstay-favorites', JSON.stringify(next))
-      return next
-    })
+  function toggleFavorite(hotel: Hotel) {
+    const isSaved = favorites.includes(hotel.id)
+    const next = isSaved
+      ? favorites.filter((id) => id !== hotel.id)
+      : [...favorites, hotel.id]
+    setFavorites(next)
+    localStorage.setItem('stillstay-favorites', JSON.stringify(next))
+    if (isSaved) {
+      setSavedHotels(savedHotels.filter((item) => item.id !== hotel.id))
+      setCompareHotels(compareHotels.filter((item) => item.id !== hotel.id))
+      setShowComparison(false)
+    } else if (!savedHotels.some((item) => item.id === hotel.id)) {
+      setSavedHotels([...savedHotels, hotel])
+    }
+  }
+
+  async function handleToggleSavedView() {
+    if (showSavedOnly) {
+      setShowSavedOnly(false)
+      setCompareMode(false)
+      setShowComparison(false)
+      setCompareHotels([])
+      return
+    }
+
+    setShowSavedOnly(true)
+    setSearchComplete(true)
+    setCompareMode(false)
+    setShowComparison(false)
+    setCompareHotels([])
+    setSavedError('')
+    if (favorites.length === 0) {
+      setSavedHotels([])
+      return
+    }
+
+    setIsLoadingSaved(true)
+    const results = await Promise.all(favorites.map((hotelId) => getHotel(hotelId, dates).catch(() => null)))
+    const loaded = results.filter((hotel): hotel is Hotel => hotel !== null)
+    setSavedHotels(loaded)
+    if (loaded.length < favorites.length) {
+      setSavedError('Some saved stays could not be refreshed. Try searching again or remove unavailable entries.')
+    }
+    setIsLoadingSaved(false)
+  }
+
+  function toggleComparison(hotel: Hotel) {
+    setCompareError('')
+    setShowComparison(false)
+    const isAlreadyComparing = compareHotels.some((item) => item.id === hotel.id)
+    if (isAlreadyComparing) {
+      setCompareHotels(compareHotels.filter((item) => item.id !== hotel.id))
+      return
+    }
+    if (compareHotels.length >= 3) {
+      setCompareError('Compare up to three stays at a time. Remove one to add another.')
+      return
+    }
+    setCompareHotels([...compareHotels, hotel])
   }
 
   async function handleBooking(event: FormEvent<HTMLFormElement>, roomId: number) {
@@ -74,6 +148,7 @@ function App() {
         roomId, guestName, guestEmail, checkIn: dates.checkIn, checkOut: dates.checkOut, guests: guestCount,
       })
       setBooking(confirmation)
+      setConfirmedHotel(selectedHotel)
       setLookupReference(confirmation.reference)
       setLookupEmail(confirmation.guestEmail)
       setBookingRoomId(null)
@@ -117,6 +192,11 @@ function App() {
     event.preventDefault()
     setError('')
     setSelectedHotel(null)
+    setShowSavedOnly(false)
+    setCompareMode(false)
+    setShowComparison(false)
+    setCompareHotels([])
+    setCompareError('')
     if (Boolean(checkIn) !== Boolean(checkOut)) {
       setError('Add both check-in and check-out dates, or leave both empty.')
       return
@@ -163,8 +243,8 @@ function App() {
           <a href="#manage-booking">Manage booking</a>
           <a href="#about">Our approach</a>
         </nav>
-        <button className="header-cta saved-toggle" type="button" onClick={() => { setShowSavedOnly((value) => !value); document.getElementById('stays')?.scrollIntoView({ behavior: 'smooth' }) }}>
-          Saved stays ({favorites.length})
+        <button className="header-cta saved-toggle" type="button" onClick={() => { void handleToggleSavedView(); document.getElementById('stays')?.scrollIntoView({ behavior: 'smooth' }) }}>
+          {showSavedOnly ? 'Back to search' : `Saved stays (${favorites.length})`}
         </button>
       </header>
 
@@ -175,20 +255,20 @@ function App() {
           <p className="hero-description">
             Find welcoming places, thoughtful details, and a stay that feels like part of the journey.
           </p>
-          <a className="text-link" href="#stays">Discover your next stay <span aria-hidden="true">→</span></a>
+          <a
+            className="hero-discover"
+            href="#stays"
+            onClick={(event) => {
+              event.preventDefault()
+              document.getElementById('stays')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }}
+          >
+            <span>Discover your next stay</span>
+            <span className="hero-discover-arrow" aria-hidden="true">→</span>
+          </a>
         </div>
 
-        <div className="hero-art" role="img" aria-label="Illustration of a quiet hillside retreat at sunset">
-          <div className="sun" />
-          <div className="hill hill-back" />
-          <div className="hill hill-front" />
-          <div className="cabin">
-            <div className="cabin-roof" />
-            <div className="cabin-body">
-              <span className="cabin-window" />
-              <span className="cabin-door" />
-            </div>
-          </div>
+        <div className="hero-art" role="img" aria-label="A traditional houseboat on the Kerala backwaters at sunset">
           <span className="art-note">Somewhere worth slowing down</span>
         </div>
       </section>
@@ -213,6 +293,9 @@ function App() {
             value={checkIn}
             onChange={(event) => {
               setCheckIn(event.target.value)
+              setCompareHotels([])
+              setShowComparison(false)
+              if (showSavedOnly) setShowSavedOnly(false)
               if (checkOut && event.target.value && checkOut <= event.target.value) setCheckOut('')
             }}
           />
@@ -224,7 +307,12 @@ function App() {
             type="date"
             min={checkIn || today}
             value={checkOut}
-            onChange={(event) => setCheckOut(event.target.value)}
+            onChange={(event) => {
+              setCheckOut(event.target.value)
+              setCompareHotels([])
+              setShowComparison(false)
+              if (showSavedOnly) setShowSavedOnly(false)
+            }}
           />
         </label>
         <button className="search-button" type="submit" disabled={isSearching}>
@@ -234,6 +322,7 @@ function App() {
 
       <section className="results-section" aria-live="polite">
         {error && <p className="notice notice-error" role="alert">{error}</p>}
+        {compareError && <p className="notice notice-error" role="alert">{compareError}</p>}
         {searchComplete && (
           <>
             <div className="results-heading">
@@ -243,25 +332,54 @@ function App() {
               </div>
               {dates && <p className="results-dates">{dates.checkIn} — {dates.checkOut}</p>}
             </div>
-            {showSavedOnly && <button className="saved-reset" type="button" onClick={() => setShowSavedOnly(false)}>Show all search results</button>}
-            {(showSavedOnly ? hotels.filter((hotel) => favorites.includes(hotel.id)) : hotels).length === 0 ? (
-              <p className="empty-state">{showSavedOnly ? 'No saved stays in these search results yet.' : 'No stays found for that destination. Try another city or country.'}</p>
+            {savedError && showSavedOnly && <p className="notice notice-error" role="alert">{savedError}</p>}
+            {isLoadingSaved && showSavedOnly && <p className="empty-state">Loading your saved stays for these dates...</p>}
+            {showSavedOnly && !isLoadingSaved && savedHotels.length >= 2 && !compareMode && (
+              <div className="compare-invite">
+                <div><strong>Would you like to compare these options?</strong><span>Select saved stays to compare them side by side.</span></div>
+                <button className="search-button" type="button" onClick={() => { setCompareMode(true); setCompareError('') }}>Yes, compare options</button>
+              </div>
+            )}
+            {showSavedOnly && compareMode && (
+              <div className="compare-controls">
+                <p>Select two or three saved stays. <strong>{compareHotels.length}/3 selected</strong></p>
+                <div>
+                  <button className="search-button" type="button" disabled={compareHotels.length < 2} onClick={() => setShowComparison(true)}>Compare selected options</button>
+                  <button className="saved-reset" type="button" onClick={() => { setCompareMode(false); setCompareHotels([]); setShowComparison(false) }}>Cancel</button>
+                </div>
+              </div>
+            )}
+            {showSavedOnly && !isLoadingSaved && savedHotels.length === 1 && (
+              <p className="empty-state">Save at least one more stay to compare options side by side.</p>
+            )}
+            {isLoadingSaved && showSavedOnly ? null : visibleHotels.length === 0 ? (
+              <p className="empty-state">{showSavedOnly ? 'No stays saved yet. Search hotels and choose “Save this stay”.' : 'No stays found for that destination. Try another city or country.'}</p>
             ) : (
               <div className="hotel-grid">
-                {(showSavedOnly ? hotels.filter((hotel) => favorites.includes(hotel.id)) : hotels).map((hotel) => {
+                {visibleHotels.map((hotel) => {
                   const room = hotel.rooms[0]
                   return (
                     <article className="hotel-card" key={hotel.id}>
-                      <div className={`hotel-art hotel-art-${(hotel.id - 1) % 5 + 1}`} aria-hidden="true">
+                      <div className="hotel-art">
+                        <img
+                          src={destinationPhotos[hotel.city.toLowerCase()] ?? udaipurPhoto}
+                          alt={`${hotel.city} landscape and stay`}
+                          loading="lazy"
+                        />
                         <span>{hotel.city}, {hotel.country}</span>
                       </div>
                       <div className="hotel-card-content">
                         <p className="hotel-location">{hotel.city} <span>·</span> {hotel.country}</p>
                         <h3>{hotel.name}</h3>
                         <p className="hotel-description">{hotel.description}</p>
-                        <button className="favorite-button" type="button" onClick={() => toggleFavorite(hotel.id)} aria-pressed={favorites.includes(hotel.id)}>
+                        <button className="favorite-button" type="button" onClick={() => toggleFavorite(hotel)} aria-pressed={favorites.includes(hotel.id)}>
                           {favorites.includes(hotel.id) ? 'Saved to shortlist' : 'Save this stay'}
                         </button>
+                        {showSavedOnly && compareMode && (
+                          <button className="comparison-toggle" type="button" onClick={() => toggleComparison(hotel)} aria-pressed={compareHotels.some((item) => item.id === hotel.id)}>
+                            {compareHotels.some((item) => item.id === hotel.id) ? 'Selected for comparison' : 'Select to compare'}
+                          </button>
+                        )}
                         <div className="hotel-card-bottom">
                           <div>
                             <strong>{room ? `₹${room.pricePerNight.toLocaleString('en-IN')}` : 'Unavailable'}</strong>
@@ -288,6 +406,70 @@ function App() {
           </>
         )}
       </section>
+
+      {showSavedOnly && compareMode && showComparison && compareHotels.length >= 2 && (
+        <section className="compare-section" aria-labelledby="compare-title">
+          <div className="compare-heading">
+            <div>
+              <p className="eyebrow">Make the choice that fits</p>
+              <h2 id="compare-title">Stay comparison</h2>
+              <p>Comparing the saved stays you selected for {dates ? `${dates.checkIn} to ${dates.checkOut}` : 'your selected dates'}.</p>
+            </div>
+            <button className="saved-reset" type="button" onClick={() => setShowComparison(false)}>Edit selection</button>
+          </div>
+          <div className="compare-table-wrap">
+            <table className="compare-table">
+              <thead>
+                <tr>
+                  <th scope="col">Stay details</th>
+                  {compareHotels.map((hotel) => (
+                    <th scope="col" key={hotel.id}>
+                      <strong>{hotel.name}</strong>
+                      <button className="compare-remove" type="button" onClick={() => toggleComparison(hotel)}>Remove</button>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Location</th>
+                  {compareHotels.map((hotel) => <td key={hotel.id}>{hotel.city}, {hotel.country}</td>)}
+                </tr>
+                <tr>
+                  <th scope="row">Room</th>
+                  {compareHotels.map((hotel) => <td key={hotel.id}>{hotel.rooms[0]?.name ?? 'No rooms listed'}</td>)}
+                </tr>
+                <tr>
+                  <th scope="row">Price per night</th>
+                  {compareHotels.map((hotel) => {
+                    const room = hotel.rooms[0]
+                    return <td key={hotel.id}>{room ? `₹${room.pricePerNight.toLocaleString('en-IN')}` : 'Unavailable'}</td>
+                  })}
+                </tr>
+                <tr>
+                  <th scope="row">Estimated stay total</th>
+                  {compareHotels.map((hotel) => {
+                    const room = hotel.rooms[0]
+                    const nights = dates ? stayNights(dates.checkIn, dates.checkOut) : 0
+                    return <td key={hotel.id}>{room && nights > 0 ? `₹${(room.pricePerNight * nights).toLocaleString('en-IN')} · ${nights} ${nights === 1 ? 'night' : 'nights'}` : 'Choose dates'}</td>
+                  })}
+                </tr>
+                <tr>
+                  <th scope="row">Availability</th>
+                  {compareHotels.map((hotel) => {
+                    const room = hotel.rooms[0]
+                    return <td key={hotel.id}>{room?.availableUnits === null || !room ? 'Choose dates' : `${room.availableUnits} of ${room.totalUnits} rooms`}</td>
+                  })}
+                </tr>
+                <tr>
+                  <th scope="row">Highlights</th>
+                  {compareHotels.map((hotel) => <td key={hotel.id}>{hotel.amenities.join(' · ') || 'No highlights listed'}</td>)}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {selectedHotel && (
         <section className="detail-panel" aria-labelledby="detail-title">
@@ -351,12 +533,62 @@ function App() {
       )}
 
       {booking && (
-        <section className="booking-confirmation" aria-live="polite">
-          <p className="eyebrow">Your stay is confirmed</p>
-          <h2>You're all set, {booking.guestName}.</h2>
-          <p>{booking.hotelName} · {booking.roomName} · {booking.checkIn} to {booking.checkOut}</p>
-          <p>Booking reference <strong>{booking.reference}</strong> · ₹{booking.totalAmount.toLocaleString('en-IN')}</p>
-          <p className="confirmation-hint">Keep your reference and email handy to retrieve or cancel your booking.</p>
+        <section className="booking-confirmation trip-ready" aria-live="polite">
+          <div className="trip-confirmation-heading">
+            <p className="eyebrow">Your stay is confirmed</p>
+            <h2>You're all set, {booking.guestName}.</h2>
+            <p>{booking.hotelName} · {booking.roomName}</p>
+          </div>
+          <dl className="trip-summary">
+            <div><dt>Check-in</dt><dd>{booking.checkIn}</dd></div>
+            <div><dt>Check-out</dt><dd>{booking.checkOut}</dd></div>
+            <div><dt>Length</dt><dd>{booking.nights} {booking.nights === 1 ? 'night' : 'nights'}</dd></div>
+            <div><dt>Guests</dt><dd>{booking.guests}</dd></div>
+            <div><dt>Total</dt><dd>₹{booking.totalAmount.toLocaleString('en-IN')}</dd></div>
+            <div><dt>Booking reference</dt><dd className="trip-reference">{booking.reference}</dd></div>
+          </dl>
+          <p className="confirmation-hint">Your booking reference and email are ready in the lookup form below if you need to view or cancel this stay.</p>
+          {confirmedHotel && (() => {
+            const guide = getDestinationGuide(confirmedHotel.city)
+            if (!guide) {
+              return <p className="booking-estimate">A local guide for {confirmedHotel.city} is not available yet.</p>
+            }
+            const plan = buildTripPlan(guide, booking.checkIn, booking.nights)
+            return (
+              <div className="trip-guide">
+                <div className="trip-guide-heading">
+                  <p className="eyebrow">A little local inspiration</p>
+                  <h3>Your {guide.city} trip plan</h3>
+                  <p>Suggestions shaped around your {booking.nights}-night stay.</p>
+                </div>
+                <div className="season-note">
+                  <strong>Seasonal note for your dates</strong>
+                  <p>{getSeasonAdvice(guide, booking.checkIn, booking.nights)}</p>
+                  <p className="season-window">Typical preferred period: {guide.seasonLabel}.</p>
+                  <span>Typical seasonal guidance, not a live weather forecast. Check opening times and local conditions before setting out.</span>
+                </div>
+                <div className="itinerary-list">
+                  {plan.map((day, index) => (
+                    <article className="itinerary-day" key={day.date}>
+                      <p className="itinerary-date">Day {index + 1} · {new Date(`${day.date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
+                      {day.places.length > 0 ? (
+                        <ul>{day.places.map((place) => <li key={place.name}><strong>{place.name}</strong><span>{place.note}</span></li>)}</ul>
+                      ) : (
+                        <p className="flex-day-note">Keep this day flexible for a slow start, local food, or revisiting a favorite.</p>
+                      )}
+                    </article>
+                  ))}
+                </div>
+                {booking.nights > plan.length && (
+                  <p className="trip-plan-note">The plan shows the first {plan.length} days; keep the remaining {booking.nights - plan.length} {booking.nights - plan.length === 1 ? 'day' : 'days'} open for rest or local discoveries.</p>
+                )}
+                <div className="trip-source-links">
+                  <span>Destination guides:</span>
+                  {guide.sources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer">{source.label}</a>)}
+                </div>
+              </div>
+            )
+          })()}
         </section>
       )}
 

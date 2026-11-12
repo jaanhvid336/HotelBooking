@@ -1,6 +1,6 @@
 # Stillstay hotel booking portal
 
-A full-stack hotel search and booking demo built with React, TypeScript, Spring Boot, and MySQL. It includes five seeded stays, date-aware availability, booking confirmation, booking lookup/cancellation, and a saved-stays shortlist.
+A full-stack hotel search and booking demo built with React, TypeScript, Spring Boot, and MySQL. It includes five seeded stays, date-aware availability, booking confirmation, booking lookup/cancellation, a saved-stays shortlist, side-by-side comparisons, and a date-aware local itinerary.
 
 ## Prerequisites
 
@@ -40,7 +40,9 @@ A full-stack hotel search and booking demo built with React, TypeScript, Spring 
 
 ## Main flow
 
-Search by city/country and dates, open a stay, select a room, and enter the guest details. The displayed total is an estimate; the API recalculates and validates the amount before it saves the reservation. The confirmation includes a reference. Use that reference and the booking email in “Look up your stay” to view or cancel it. The saved-stays shortlist is stored in this browser with `localStorage`.
+Search by city/country and dates, open a stay, select a room, and enter the guest details. The displayed total is an estimate; the API recalculates and validates the amount before it saves the reservation. The confirmation includes a reference. Use that reference and the booking email in “Look up your stay” to view or cancel it. Save stays to the browser shortlist. Open “Saved stays,” choose whether to compare, select two or three saved hotels, then view their nightly price, estimated trip total, room availability, and amenities side by side.
+
+The trip-ready confirmation adds a sample sightseeing plan sized to the booked nights and seasonal guidance based on the stay dates for the five seeded destinations. It links to official tourism sources. The seasonal guidance is general climate/season context, not a live forecast, venue-hours feed, or safety notice; check current local conditions before travel.
 
 Check-in defaults to today's local date and check-out to tomorrow. Both are native date fields with calendar pickers and can be changed before searching or booking.
 

@@ -34,9 +34,11 @@ The server counts confirmed reservations whose intervals overlap the requested i
 - Reference plus email is a lightweight retrieval check appropriate for the assignment. Production booking management should use stronger identity verification, rate limits, audit logging, and privacy controls.
 - The frontend shortlist is an opt-in convenience feature stored only in browser `localStorage`; it is not a server-side saved list and does not require authentication.
 
-## Surprise feature: saved-stays shortlist
+## Surprise feature: trip-ready confirmation
 
-Users can save hotel cards to a shortlist and filter the current search results to those stays. This helps compare options without losing them while browsing. The selected hotel IDs are persisted in `localStorage`, so the shortlist survives a refresh on the same browser. It is intentionally small and requires no account or database changes.
+After a booking, the confirmation doubles as a trip-ready card with the dates, nights, guests, total, and reference. For each seeded destination it suggests popular sights, distributes them across the booked nights, and compares the dates with typical preferred travel months. The guide links to official tourism sources. It is static seasonal context, not a live weather forecast or a guarantee that venues are open; travelers should check current local conditions and hours.
+
+The browser-local saved-stays shortlist is the starting point for comparison. From “Saved stays,” a traveler can opt into comparison, select two or three saved hotels, and view location, room, nightly price, estimated stay total, availability, and amenities side by side. Neither feature needs a database migration or account system.
 
 ## Limitations and possible next steps
 
