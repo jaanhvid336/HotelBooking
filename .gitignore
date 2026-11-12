@@ -11,6 +11,8 @@ frontend/.vite/
 .env
 .env.*
 !.env.example
+backend/src/main/resources/application-local.properties
+backend/src/main/resources/application-secrets.properties
 
 # IDE and OS
 .idea/
