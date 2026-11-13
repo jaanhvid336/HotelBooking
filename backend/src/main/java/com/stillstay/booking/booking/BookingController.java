@@ -1,5 +1,11 @@
 package com.stillstay.booking.booking;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,10 +27,12 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/bookings")
+@Tag(name = "Bookings", description = "Create, find, and cancel hotel bookings.")
 @CrossOrigin(origins = {
         "http://localhost:5173", "http://127.0.0.1:5173",
         "http://localhost:5174", "http://127.0.0.1:5174",
-        "http://localhost:5175", "http://127.0.0.1:5175"
+        "http://localhost:5175", "http://127.0.0.1:5175",
+        "http://localhost:5176", "http://127.0.0.1:5176"
 })
 public class BookingController {
 
@@ -35,19 +43,39 @@ public class BookingController {
     }
 
     @PostMapping
+    @Operation(
+            summary = "Create a booking",
+            description = "Creates a confirmed booking. The server checks stay dates, guest capacity, room availability, and calculates the total from the nightly price."
+    )
+    @ApiResponse(responseCode = "201", description = "Booking created", content = @Content(schema = @Schema(implementation = BookingResponse.class)))
+    @ApiResponse(responseCode = "400", description = "Invalid request, dates, capacity, or no room availability")
     public ResponseEntity<BookingResponse> create(@Valid @RequestBody CreateBookingRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(bookingService.create(request));
     }
 
     @GetMapping
+    @Operation(
+            summary = "Find a booking",
+            description = "Retrieves a booking using its reference and the email address used at booking."
+    )
+    @ApiResponse(responseCode = "404", description = "No booking matches the supplied reference and email")
+    @ApiResponse(responseCode = "400", description = "Missing or invalid lookup parameters")
     public BookingResponse find(
+            @Parameter(description = "20-character booking reference", example = "A1B2C3D4E5F6G7H8I9J0")
             @RequestParam("reference") String reference,
+            @Parameter(description = "Email address used for the booking", example = "guest@example.com")
             @RequestParam("email") String email
     ) {
         return bookingService.find(reference, email);
     }
 
     @PostMapping("/cancel")
+    @Operation(
+            summary = "Cancel a booking",
+            description = "Cancels a booking after verifying its reference and email. Cancelled bookings release room availability."
+    )
+    @ApiResponse(responseCode = "404", description = "No booking matches the supplied reference and email")
+    @ApiResponse(responseCode = "400", description = "Invalid request or booking cannot be cancelled")
     public BookingResponse cancel(@Valid @RequestBody BookingLookupRequest request) {
         return bookingService.cancel(request.reference(), request.email());
     }

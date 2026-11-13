@@ -40,17 +40,31 @@ export interface Booking {
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 
+async function responseError(response: Response): Promise<Error> {
+  const body: unknown = await response.json().catch(() => null)
+  if (typeof body === 'object' && body !== null) {
+    const errorBody = body as Record<string, unknown>
+    for (const field of ['message', 'detail']) {
+      if (typeof errorBody[field] === 'string') return new Error(errorBody[field])
+    }
+    if (response.status === 404) {
+      return new Error('The API endpoint was not found (HTTP 404). This page may be connected to an older backend; open the latest app server and try again.')
+    }
+    if (typeof errorBody.error === 'string') {
+      return new Error(`${errorBody.error} (HTTP ${response.status}). Please try again.`)
+    }
+  }
+
+  if (response.status === 502 || response.status === 503) {
+    return new Error('The hotel API is unavailable. Start the backend and check its MySQL connection, then try again.')
+  }
+
+  return new Error(`The request failed with HTTP ${response.status}. Please try again.`)
+}
+
 async function request<T>(path: string): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`)
-  if (!response.ok) {
-    const body: unknown = await response.json().catch(() => null)
-    const message =
-      typeof body === 'object' && body !== null && 'message' in body &&
-      typeof body.message === 'string'
-        ? body.message
-        : 'Something went wrong. Please try again.'
-    throw new Error(message)
-  }
+  if (!response.ok) throw await responseError(response)
   return response.json() as Promise<T>
 }
 
@@ -60,15 +74,7 @@ async function send<T>(path: string, method: 'POST', body: unknown): Promise<T> 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!response.ok) {
-    const body: unknown = await response.json().catch(() => null)
-    const message =
-      typeof body === 'object' && body !== null && 'message' in body &&
-      typeof body.message === 'string'
-        ? body.message
-        : 'Something went wrong. Please try again.'
-    throw new Error(message)
-  }
+  if (!response.ok) throw await responseError(response)
   return response.json() as Promise<T>
 }
 

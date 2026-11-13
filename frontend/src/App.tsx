@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import { checkItineraryPace } from './api/itinerary'
+import type { ItineraryPaceResponse } from './api/itinerary'
 import { cancelBooking, createBooking, findBooking, getHotel, searchHotels } from './api/hotels'
 import type { Booking, Hotel, StayDates } from './api/hotels'
 import goaPhoto from './assets/travel/goa-coast.jpg'
@@ -29,10 +31,18 @@ function stayNights(checkIn: string, checkOut: string) {
   return Math.round((Date.parse(`${checkOut}T00:00:00`) - Date.parse(`${checkIn}T00:00:00`)) / 86_400_000)
 }
 
+function formatHours(minutes: number) {
+  return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 1 }).format(minutes / 60)
+}
+
 const today = localDateString(new Date())
 const nextDay = new Date()
 nextDay.setDate(nextDay.getDate() + 1)
 const tomorrow = localDateString(nextDay)
+
+type PaceState =
+  | { queryKey: string; status: 'ready'; result: ItineraryPaceResponse }
+  | { queryKey: string; status: 'error'; message: string }
 
 function App() {
   const [location, setLocation] = useState('')
@@ -48,7 +58,7 @@ function App() {
   const [isLoadingSaved, setIsLoadingSaved] = useState(false)
   const [compareMode, setCompareMode] = useState(false)
   const [showComparison, setShowComparison] = useState(false)
-  const [isSearching, setIsSearching] = useState(false)
+  const [isSearching, setIsSearching] = useState(true)
   const [isLoadingDetails, setIsLoadingDetails] = useState(false)
   const [error, setError] = useState('')
   const [searchComplete, setSearchComplete] = useState(false)
@@ -57,6 +67,8 @@ function App() {
   const [guestEmail, setGuestEmail] = useState('')
   const [guestCount, setGuestCount] = useState(1)
   const [booking, setBooking] = useState<Booking | null>(null)
+  const [availableSightseeingHours, setAvailableSightseeingHours] = useState(8)
+  const [paceState, setPaceState] = useState<PaceState | null>(null)
   const [bookingError, setBookingError] = useState('')
   const [isBooking, setIsBooking] = useState(false)
   const [lookupReference, setLookupReference] = useState('')
@@ -64,6 +76,10 @@ function App() {
   const [managedBooking, setManagedBooking] = useState<Booking | null>(null)
   const [isManagingBooking, setIsManagingBooking] = useState(false)
   const [showSavedOnly, setShowSavedOnly] = useState(false)
+  const bookingConfirmationRef = useRef<HTMLElement | null>(null)
+  const searchLocationRef = useRef<HTMLInputElement | null>(null)
+  const comparisonSectionRef = useRef<HTMLElement | null>(null)
+  const detailPanelRef = useRef<HTMLElement | null>(null)
   const [favorites, setFavorites] = useState<number[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('stillstay-favorites') ?? '[]') as number[]
@@ -73,6 +89,99 @@ function App() {
   })
   const dates: StayDates | undefined = checkIn && checkOut ? { checkIn, checkOut } : undefined
   const visibleHotels = showSavedOnly ? savedHotels : hotels
+  const paceQueryKey = booking && confirmedHotel
+    ? `${booking.reference}:${confirmedHotel.id}:${availableSightseeingHours}`
+    : ''
+  const activePaceState = paceState?.queryKey === paceQueryKey ? paceState : null
+  const paceCheck = activePaceState?.status === 'ready' ? activePaceState.result : null
+  const paceError = activePaceState?.status === 'error' ? activePaceState.message : ''
+  const isCheckingPace = Boolean(
+    booking && confirmedHotel && getDestinationGuide(confirmedHotel.city) && !activePaceState,
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    void searchHotels('', { checkIn: today, checkOut: tomorrow })
+      .then((results) => {
+        if (cancelled) return
+        setHotels(results)
+        setSearchComplete(true)
+      })
+      .catch((searchFailure: unknown) => {
+        if (!cancelled) {
+          setError(searchFailure instanceof Error ? searchFailure.message : 'Unable to load stays.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsSearching(false)
+      })
+
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (!booking || !confirmedHotel) return
+    const guide = getDestinationGuide(confirmedHotel.city)
+    if (!guide) return
+
+    const plan = buildTripPlan(guide, booking.checkIn, booking.nights)
+    const paceDays = plan.map((day) => ({
+      date: day.date,
+      attractions: day.places.map((place) => ({
+        name: place.name,
+        visitMinutes: place.visitMinutes,
+        travelMinutesToNext: place.travelMinutesToNext,
+      })),
+    }))
+    const paceBatches = Array.from(
+      { length: Math.ceil(paceDays.length / 14) },
+      (_, index) => paceDays.slice(index * 14, (index + 1) * 14),
+    )
+    const queryKey = `${booking.reference}:${confirmedHotel.id}:${availableSightseeingHours}`
+    let cancelled = false
+    void Promise.all(paceBatches.map((days) => checkItineraryPace({
+      availableHoursPerDay: availableSightseeingHours,
+      days,
+    })))
+      .then((result) => {
+        if (!cancelled) {
+          const firstBatch = result[0]
+          if (!firstBatch) return
+          setPaceState({
+            queryKey,
+            status: 'ready',
+            result: {
+              mealBreakBufferMinutes: firstBatch.mealBreakBufferMinutes,
+              defaultTravelMinutes: firstBatch.defaultTravelMinutes,
+              days: result.flatMap((batch) => batch.days),
+            },
+          })
+        }
+      })
+      .catch((paceFailure: unknown) => {
+        if (!cancelled) {
+          setPaceState({
+            queryKey,
+            status: 'error',
+            message: paceFailure instanceof Error ? paceFailure.message : 'Unable to check the itinerary pace.',
+          })
+        }
+      })
+
+    return () => { cancelled = true }
+  }, [booking, confirmedHotel, availableSightseeingHours])
+
+  useEffect(() => {
+    if (booking) bookingConfirmationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [booking])
+
+  useEffect(() => {
+    if (showComparison) comparisonSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [showComparison])
+
+  useEffect(() => {
+    if (selectedHotel) detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [selectedHotel])
 
   function toggleFavorite(hotel: Hotel) {
     const isSaved = favorites.includes(hotel.id)
@@ -238,11 +347,6 @@ function App() {
           <span className="wordmark-mark" aria-hidden="true">s</span>
           stillstay
         </a>
-        <nav className="header-links" aria-label="Main navigation">
-          <a href="#stays">Find a stay</a>
-          <a href="#manage-booking">Manage booking</a>
-          <a href="#about">Our approach</a>
-        </nav>
         <button className="header-cta saved-toggle" type="button" onClick={() => { void handleToggleSavedView(); document.getElementById('stays')?.scrollIntoView({ behavior: 'smooth' }) }}>
           {showSavedOnly ? 'Back to search' : `Saved stays (${favorites.length})`}
         </button>
@@ -261,6 +365,7 @@ function App() {
             onClick={(event) => {
               event.preventDefault()
               document.getElementById('stays')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              window.setTimeout(() => searchLocationRef.current?.focus({ preventScroll: true }), 250)
             }}
           >
             <span>Discover your next stay</span>
@@ -277,6 +382,7 @@ function App() {
         <label className="search-field">
           <span className="field-label">Where to?</span>
           <input
+            ref={searchLocationRef}
             className="field-input"
             type="text"
             placeholder="City or destination"
@@ -358,8 +464,9 @@ function App() {
               <div className="hotel-grid">
                 {visibleHotels.map((hotel) => {
                   const room = hotel.rooms[0]
+                  const isComparing = compareHotels.some((item) => item.id === hotel.id)
                   return (
-                    <article className="hotel-card" key={hotel.id}>
+                    <article className={`hotel-card${isComparing ? ' hotel-card-comparing' : ''}`} key={hotel.id}>
                       <div className="hotel-art">
                         <img
                           src={destinationPhotos[hotel.city.toLowerCase()] ?? udaipurPhoto}
@@ -376,8 +483,9 @@ function App() {
                           {favorites.includes(hotel.id) ? 'Saved to shortlist' : 'Save this stay'}
                         </button>
                         {showSavedOnly && compareMode && (
-                          <button className="comparison-toggle" type="button" onClick={() => toggleComparison(hotel)} aria-pressed={compareHotels.some((item) => item.id === hotel.id)}>
-                            {compareHotels.some((item) => item.id === hotel.id) ? 'Selected for comparison' : 'Select to compare'}
+                          <button className="comparison-toggle" type="button" onClick={() => toggleComparison(hotel)} aria-pressed={isComparing}>
+                            <span className="comparison-check" aria-hidden="true">{isComparing ? '✓' : ''}</span>
+                            {isComparing ? 'Added to compare' : 'Select to compare'}
                           </button>
                         )}
                         <div className="hotel-card-bottom">
@@ -408,7 +516,7 @@ function App() {
       </section>
 
       {showSavedOnly && compareMode && showComparison && compareHotels.length >= 2 && (
-        <section className="compare-section" aria-labelledby="compare-title">
+        <section ref={comparisonSectionRef} className="compare-section" aria-labelledby="compare-title">
           <div className="compare-heading">
             <div>
               <p className="eyebrow">Make the choice that fits</p>
@@ -472,7 +580,7 @@ function App() {
       )}
 
       {selectedHotel && (
-        <section className="detail-panel" aria-labelledby="detail-title">
+        <section ref={detailPanelRef} className="detail-panel" aria-labelledby="detail-title">
           <button className="detail-close" type="button" onClick={() => setSelectedHotel(null)}>Close</button>
           <p className="eyebrow">{selectedHotel.city} · {selectedHotel.country}</p>
           <h2 id="detail-title">{selectedHotel.name}</h2>
@@ -533,7 +641,7 @@ function App() {
       )}
 
       {booking && (
-        <section className="booking-confirmation trip-ready" aria-live="polite">
+        <section ref={bookingConfirmationRef} className="booking-confirmation trip-ready" aria-live="polite">
           <div className="trip-confirmation-heading">
             <p className="eyebrow">Your stay is confirmed</p>
             <h2>You're all set, {booking.guestName}.</h2>
@@ -561,6 +669,29 @@ function App() {
                   <h3>Your {guide.city} trip plan</h3>
                   <p>Suggestions shaped around your {booking.nights}-night stay.</p>
                 </div>
+                <div className="pace-checker">
+                  <div>
+                    <strong>Smart itinerary pace</strong>
+                    <span>Set how much time you want for sightseeing each day.</span>
+                  </div>
+                  <label>
+                    <span>Available sightseeing hours</span>
+                    <select
+                      value={availableSightseeingHours}
+                      onChange={(event) => setAvailableSightseeingHours(Number(event.target.value))}
+                    >
+                      {[4, 6, 8, 10, 12].map((hours) => <option key={hours} value={hours}>{hours} hours per day</option>)}
+                    </select>
+                  </label>
+                </div>
+                {paceCheck && (
+                  <p className="pace-estimate-note">
+                    Includes {paceCheck.mealBreakBufferMinutes} minutes for meals and breaks per day. When route time is unavailable, travel uses an approximate {paceCheck.defaultTravelMinutes}-minute transfer between stops.
+                  </p>
+                )}
+                {!paceCheck && <p className="pace-estimate-note">Visit times are estimates. Transfers between suggested stops use an approximate 30-minute estimate when route time is unavailable.</p>}
+                {isCheckingPace && <p className="pace-status" role="status">Checking your daily pace...</p>}
+                {paceError && <p className="notice notice-error" role="alert">Pace check unavailable: {paceError} Your itinerary is still shown above.</p>}
                 <div className="season-note">
                   <strong>Seasonal note for your dates</strong>
                   <p>{getSeasonAdvice(guide, booking.checkIn, booking.nights)}</p>
@@ -568,20 +699,54 @@ function App() {
                   <span>Typical seasonal guidance, not a live weather forecast. Check opening times and local conditions before setting out.</span>
                 </div>
                 <div className="itinerary-list">
-                  {plan.map((day, index) => (
-                    <article className="itinerary-day" key={day.date}>
-                      <p className="itinerary-date">Day {index + 1} · {new Date(`${day.date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
-                      {day.places.length > 0 ? (
-                        <ul>{day.places.map((place) => <li key={place.name}><strong>{place.name}</strong><span>{place.note}</span></li>)}</ul>
-                      ) : (
-                        <p className="flex-day-note">Keep this day flexible for a slow start, local food, or revisiting a favorite.</p>
-                      )}
-                    </article>
-                  ))}
+                  {plan.map((day, index) => {
+                    const dayPace = paceCheck?.days.find((result) => result.date === day.date)
+                    const progress = dayPace
+                      ? Math.min(100, Math.round(dayPace.totalRequiredMinutes / dayPace.availableMinutes * 100))
+                      : 0
+                    const paceLabel = dayPace ? `${dayPace.pace[0]}${dayPace.pace.slice(1).toLowerCase()}` : ''
+                    return (
+                      <article className={`itinerary-day${dayPace ? ` pace-${dayPace.pace.toLowerCase()}${dayPace.overloaded ? ' pace-overloaded' : ''}` : ''}`} key={day.date}>
+                        <p className="itinerary-date">Day {index + 1} · {new Date(`${day.date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
+                        {dayPace ? (
+                          <div className="pace-day-summary">
+                            <div className="pace-day-heading">
+                              <div><strong>{formatHours(dayPace.totalRequiredMinutes)} h</strong><span>estimated of {dayPace.availableHours} h available</span></div>
+                              <span className={`pace-badge pace-badge-${dayPace.pace.toLowerCase()}`}>{paceLabel}</span>
+                            </div>
+                            <div
+                              className="pace-meter"
+                              role="progressbar"
+                              aria-label={`${dayPace.totalRequiredHours} of ${dayPace.availableHours} sightseeing hours planned`}
+                              aria-valuemin={0}
+                              aria-valuemax={dayPace.availableMinutes}
+                              aria-valuenow={Math.min(dayPace.totalRequiredMinutes, dayPace.availableMinutes)}
+                            >
+                              <span style={{ width: `${progress}%` }} />
+                            </div>
+                            <p className="pace-breakdown">
+                              Visits {formatHours(dayPace.sightseeingMinutes)} h · {dayPace.travelEstimateApproximate ? 'Approx. travel' : 'Travel'} {formatHours(dayPace.travelMinutes)} h · meals & breaks {formatHours(dayPace.mealBreakBufferMinutes)} h
+                            </p>
+                            {dayPace.overloaded && (
+                              <div className="pace-warning" role="alert">
+                                <strong>Day is overloaded</strong>
+                                <p>{dayPace.warning}</p>
+                                <p>{dayPace.suggestion}</p>
+                              </div>
+                            )}
+                          </div>
+                        ) : isCheckingPace ? (
+                          <p className="pace-pending">Pace estimate loading...</p>
+                        ) : null}
+                        <ul>{day.places.map((place) => <li key={place.name}>
+                          <strong>{place.name}</strong>
+                          <span>{place.note}</span>
+                          <span className="itinerary-place-time">Suggested visit: about {formatHours(place.visitMinutes)} hours</span>
+                        </li>)}</ul>
+                      </article>
+                    )
+                  })}
                 </div>
-                {booking.nights > plan.length && (
-                  <p className="trip-plan-note">The plan shows the first {plan.length} days; keep the remaining {booking.nights - plan.length} {booking.nights - plan.length === 1 ? 'day' : 'days'} open for rest or local discoveries.</p>
-                )}
                 <div className="trip-source-links">
                   <span>Destination guides:</span>
                   {guide.sources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer">{source.label}</a>)}

@@ -44,6 +44,8 @@ Search by city/country and dates, open a stay, select a room, and enter the gues
 
 The trip-ready confirmation adds a sample sightseeing plan sized to the booked nights and seasonal guidance based on the stay dates for the five seeded destinations. It links to official tourism sources. The seasonal guidance is general climate/season context, not a live forecast, venue-hours feed, or safety notice; check current local conditions before travel.
 
+The Smart Itinerary Pace Checker analyzes those same generated attractions without changing the plan. It adds visit time, transfer time, and a configurable daily meal/break buffer, then compares the total with the guest's available sightseeing hours. Days are Relaxed at up to 60% of available time, Balanced through 85%, and Packed above 85%; an overload warning appears when the plan exceeds the available hours. Missing transfer times use a clearly labeled approximate default. Configure the defaults with `ITINERARY_MEAL_BREAK_BUFFER_MINUTES` (90) and `ITINERARY_DEFAULT_TRAVEL_MINUTES` (30).
+
 Check-in defaults to today's local date and check-out to tomorrow. Both are native date fields with calendar pickers and can be changed before searching or booking.
 
 ## View saved bookings in MySQL
@@ -67,6 +69,11 @@ Confirmed and cancelled reservations remain in this table; the `status` column s
 - `POST /api/bookings` — create a one-room booking; the server calculates the amount.
 - `GET /api/bookings?reference=&email=` — retrieve a booking by its full 20-character confirmation reference and email (reference matching ignores case).
 - `POST /api/bookings/cancel` — cancel a booking using its reference and email.
+- `POST /api/itinerary/pace-check` — analyze the generated daily attractions against available sightseeing hours.
+
+### Interactive API documentation
+
+With the backend running, open [Swagger UI](http://localhost:8080/swagger-ui.html) to inspect the Hotels, Bookings, and Health endpoints. Use **Try it out** to send requests to the local API. The raw OpenAPI specification is available at `http://localhost:8080/v3/api-docs`.
 
 See [DESIGN.md](DESIGN.md) for the architecture, schema, booking rules, trade-offs, and remaining submission items.
 

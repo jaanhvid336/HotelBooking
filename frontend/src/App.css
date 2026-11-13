@@ -445,18 +445,65 @@ h1 em {
 
 .comparison-toggle,
 .compare-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   margin-left: 14px;
-  padding: 0;
-  border: 0;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 3px;
   color: #526c57;
   background: transparent;
   cursor: pointer;
   font-size: 11px;
   font-weight: 600;
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.comparison-toggle:hover,
+.comparison-toggle:focus-visible {
+  border-color: #dfe5d9;
+  color: #35443a;
+  background: #f4f6f0;
+}
+
+.comparison-toggle:focus-visible {
+  outline: 2px solid #789078;
+  outline-offset: 2px;
+}
+
+.comparison-check {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  flex: 0 0 16px;
+  place-items: center;
+  border: 1px solid #b9c4b4;
+  border-radius: 3px;
+  color: #fff;
+  background: #fffefa;
+  font-size: 11px;
+  line-height: 1;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.comparison-toggle:hover .comparison-check {
+  border-color: #789078;
+  background: #edf0e9;
 }
 
 .comparison-toggle[aria-pressed='true'] {
   color: #bd7957;
+}
+
+.comparison-toggle[aria-pressed='true'] .comparison-check {
+  border-color: #bd7957;
+  background: #bd7957;
+}
+
+.hotel-card-comparing {
+  border-color: #bd7957;
+  box-shadow: 0 0 0 2px rgb(189 121 87 / 12%);
 }
 
 .saved-reset {
@@ -1003,6 +1050,167 @@ h1 em {
   background: rgb(255 255 255 / 65%);
 }
 
+.pace-checker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 18px 0 8px;
+  padding: 16px 18px;
+  border: 1px solid #dfe5d9;
+  border-radius: 3px;
+  background: #f4f6f0;
+}
+
+.pace-checker > div,
+.pace-checker label {
+  display: grid;
+  gap: 5px;
+}
+
+.pace-checker strong,
+.pace-checker label > span {
+  color: #35443a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pace-checker > div > span,
+.pace-estimate-note,
+.pace-status {
+  margin: 0;
+  color: #788073;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.pace-checker select {
+  min-width: 180px;
+  padding: 9px 11px;
+  border: 1px solid #dfe5d9;
+  border-radius: 3px;
+  color: #35443a;
+  background: #fffefa;
+  font: inherit;
+  font-size: 12px;
+}
+
+.pace-estimate-note,
+.pace-status {
+  margin: 8px 0 14px;
+}
+
+.pace-day-summary {
+  margin: 0 0 15px;
+  padding: 11px;
+  border-radius: 3px;
+  background: #f4f6f0;
+}
+
+.pace-day-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+
+.pace-day-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.pace-day-heading strong {
+  color: #35443a;
+  font-size: 18px;
+}
+
+.pace-day-heading > div > span {
+  color: #788073;
+  font-size: 10px;
+}
+
+.pace-badge {
+  padding: 5px 8px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.pace-badge-relaxed {
+  color: #42624a;
+  background: #e2ecdf;
+}
+
+.pace-badge-balanced {
+  color: #77592e;
+  background: #f1e8d5;
+}
+
+.pace-badge-packed {
+  color: #8b4d36;
+  background: #f4e0d7;
+}
+
+.pace-meter {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #e2e7dc;
+}
+
+.pace-meter > span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: #829578;
+  transition: width 250ms ease;
+}
+
+.pace-balanced .pace-meter > span {
+  background: #c39a5b;
+}
+
+.pace-packed .pace-meter > span {
+  background: #bd7957;
+}
+
+.pace-overloaded .pace-meter > span {
+  background: #a64f3d;
+}
+
+.pace-breakdown {
+  margin: 8px 0 0;
+  color: #788073;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.pace-warning {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-left: 2px solid #a64f3d;
+  background: #fff4ef;
+}
+
+.pace-warning strong {
+  color: #8b4d36;
+  font-size: 11px;
+}
+
+.pace-warning p {
+  margin: 4px 0 0;
+  color: #73574d;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.pace-pending {
+  margin: 0 0 12px;
+  color: #788073;
+  font-size: 11px;
+}
+
 .itinerary-date {
   margin: 0 0 12px;
   color: #526c57;
@@ -1036,6 +1244,11 @@ h1 em {
   color: #788073;
   font-size: 11px;
   line-height: 1.55;
+}
+
+.itinerary-day li .itinerary-place-time {
+  color: #526c57;
+  font-weight: 600;
 }
 
 .trip-plan-note {
@@ -1223,6 +1436,15 @@ h1 em {
 
   .trip-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pace-checker {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pace-checker select {
+    width: 100%;
   }
 
   .itinerary-list {
