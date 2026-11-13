@@ -1,12 +1,12 @@
 # Stillstay hotel booking portal
 
-A full-stack hotel search and booking demo built with React, TypeScript, Spring Boot, and MySQL. It includes five seeded stays, date-aware availability, booking confirmation, booking lookup/cancellation, a saved-stays shortlist, side-by-side comparisons, and a date-aware local itinerary.
+A full-stack hotel search and booking portal built with React, TypeScript, Spring Boot, and MySQL. It includes five seeded stays, date-aware availability, booking confirmation, booking lookup and cancellation, a saved-stays shortlist, side-by-side comparisons, and a trip-ready itinerary with a daily pace check.
 
 ## Prerequisites
 
 - Java 17
 - Maven 3.9 or later
-- Node.js 20.19+ and npm
+- Node.js 20.19+ or 22.12+ and npm
 - MySQL 8.0+
 
 ## Run locally
@@ -38,15 +38,47 @@ A full-stack hotel search and booking demo built with React, TypeScript, Spring 
 
    Open the local URL printed by Vite (normally `http://localhost:5173`). Vite proxies `/api` requests to the backend. Set `VITE_API_BASE_URL` only when using a separately hosted API; the variable can be added to an ignored `.env.local` file.
 
-## Main flow
+## Project flow
 
-Search by city/country and dates, open a stay, select a room, and enter the guest details. The displayed total is an estimate; the API recalculates and validates the amount before it saves the reservation. The confirmation includes a reference. Use that reference and the booking email in “Look up your stay” to view or cancel it. Save stays to the browser shortlist. Open “Saved stays,” choose whether to compare, select two or three saved hotels, then view their nightly price, estimated trip total, room availability, and amenities side by side.
+### Approach taken to complete the assessment
 
-The trip-ready confirmation adds a sample sightseeing plan sized to the booked nights and seasonal guidance based on the stay dates for the five seeded destinations. It links to official tourism sources. The seasonal guidance is general climate/season context, not a live forecast, venue-hours feed, or safety notice; check current local conditions before travel.
+I started with the MySQL schema and sample hotel data, then built the Spring Boot API for searching hotels and managing bookings. I connected the React interface to those endpoints and completed the guest flow: browse or filter stays, select dates and a room, confirm a booking, and look it up or cancel it later.
 
-The Smart Itinerary Pace Checker analyzes those same generated attractions without changing the plan. It adds visit time, transfer time, and a configurable daily meal/break buffer, then compares the total with the guest's available sightseeing hours. Days are Relaxed at up to 60% of available time, Balanced through 85%, and Packed above 85%; an overload warning appears when the plan exceeds the available hours. Missing transfer times use a clearly labeled approximate default. Configure the defaults with `ITINERARY_MEAL_BREAK_BUFFER_MINUTES` (90) and `ITINERARY_DEFAULT_TRAVEL_MINUTES` (30).
+### Key assumptions made
 
-Check-in defaults to today's local date and check-out to tomorrow. Both are native date fields with calendar pickers and can be changed before searching or booking.
+Each booking reserves one room unit, even when it includes multiple guests. Check-out day is not counted as an occupied night, so another guest can check in that day. For this demo, guests retrieve bookings with the unique reference and the email address used at booking.
+
+### Challenges faced and how they were addressed
+
+The main challenge was preventing two guests from booking the last available room at the same time. The backend locks the room record, checks for overlapping confirmed bookings, and saves the new booking in one transaction. The server also calculates the total from the room price and stay length, so it does not rely on a total sent by the browser.
+
+### Additional enhancements or improvements with more time
+
+**AI trip planner flow:** After choosing a stay and dates, the guest selects interests, preferred pace, budget, and any accessibility needs. The backend combines these preferences with a curated list of local attractions and asks the AI to create a day-by-day itinerary for the stay. It checks that the plan fits the dates and available time, then shows it for the guest to edit or regenerate. If the AI service is unavailable, the app shows its existing curated suggestions.
+
+## Surprise element
+
+1. what the feature does
+
+This feature provides guests with a well-planned itinerary after their booking has been confirmed. It will suggest places to see, how long you should spend there, seasonality advice and how fast you will be travelling. Guests can choose how many hours they want to spend sightseeing each day.
+
+2. why you chose it
+
+Booking confirmations typically just show transactional information. This feature will allow guests to start planning their holiday and know which days might be too busy.
+
+3. how did you implement?
+
+Frontend
+
+When a booking is confirmed, the React app will find the curated destination guide for the hotel city. An itinerary will then be created day-by-day using the check-in date and number of nights. This will give the guest suggestions on where to visit, how long to spend there, seasonality advice and tourism resources. When the available sightseeing hours change, the places to visit and times spent there each day will be sent to the backend pacing endpoint. The response will be shown to the user with estimates, pacing labels, and progress bars or an error if one occurs.
+
+Backend
+
+The Spring Boot itinerary controller checks that the request is valid and sends it to the pacing service. The service will calculate the total time spent visiting places and travelling between them. If there is no routing information, it will use an approximate time that can be configured. It will then add the configured meal and break buffer. Each day will be labelled as Relaxed, Balanced or Packed. This will return any warnings about overloading and suggestions. The frontend will combine this with the itinerary. The pacing endpoint can handle up to 14 days per request, so the frontend will group larger stays.
+
+4. Note
+
+The suggested destinations and seasonality notes are curated examples for each of the 5 destinations supported. They are not dynamic and will not be generated by AI or based on real time.
 
 ## View saved bookings in MySQL
 
@@ -64,6 +96,7 @@ Confirmed and cancelled reservations remain in this table; the `status` column s
 
 ## API overview
 
+- `GET /api/health` — report whether the API is running.
 - `GET /api/hotels?location=&checkIn=&checkOut=` — search stays; dates are optional but must be provided together.
 - `GET /api/hotels/{id}?checkIn=&checkOut=` — hotel details and room availability.
 - `POST /api/bookings` — create a one-room booking; the server calculates the amount.
@@ -71,15 +104,25 @@ Confirmed and cancelled reservations remain in this table; the `status` column s
 - `POST /api/bookings/cancel` — cancel a booking using its reference and email.
 - `POST /api/itinerary/pace-check` — analyze the generated daily attractions against available sightseeing hours.
 
+## Build and tests
+
+Run the frontend checks from `frontend/`:
+
+```powershell
+npm.cmd run build
+npm.cmd run lint
+```
+
+Run the backend unit tests from `backend/`:
+
+```powershell
+mvn test
+```
+
+The backend tests cover server-side booking totals, invalid dates, capacity limits, and itinerary pace estimates.
+
 ### Interactive API documentation
 
 With the backend running, open [Swagger UI](http://localhost:8080/swagger-ui.html) to inspect the Hotels, Bookings, and Health endpoints. Use **Try it out** to send requests to the local API. The raw OpenAPI specification is available at `http://localhost:8080/v3/api-docs`.
 
 See [DESIGN.md](DESIGN.md) for the architecture, schema, booking rules, trade-offs, and remaining submission items.
-
-## Submission notes
-
-- Approximate time spent: fill in before submission.
-- Screenshots or a short demo recording: capture the search, confirmation, and cancellation flow before submission.
-- Significant AI assistance was used to implement and document the booking flow; review the code and be ready to explain the choices during the interview.
-- Publish the repository as public when submitting; no repository visibility or remote changes have been made from this workspace.

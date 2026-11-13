@@ -2,49 +2,82 @@
 
 ## Architecture
 
-The React and TypeScript client sends JSON requests to a Spring Boot REST API. Controllers bind and validate request data, services own hotel search and booking rules, and Spring Data JPA repositories persist entities to MySQL. Flyway owns the schema and seeds five example hotels and their rooms. The frontend only presents an estimated total; the backend owns the authoritative price and availability decision.
+The application has three parts:
 
-## Data model
+- **Frontend:** React and TypeScript provide the hotel catalogue, search filters, booking forms, saved stays, comparison view, and trip-ready itinerary. In local development, Vite proxies `/api` requests to the backend.
+- **Backend:** Java 17 and Spring Boot expose REST endpoints. Controllers bind and validate HTTP input, service classes apply booking and itinerary rules, and Spring Data JPA repositories handle persistence.
+- **Database:** MySQL stores hotels, room categories, and bookings. Flyway applies the schema and sample-data migrations at startup.
 
-- `Hotel` has many `Room` records. Hotel amenities are stored as a MySQL JSON array.
-- `Room` belongs to one hotel and stores its nightly price, physical capacity (`total_units`), and maximum guests per room.
-- `Booking` reserves one room unit for a date interval and stores guest details, the total at booking time, a unique reference, and a `CONFIRMED` or `CANCELLED` status.
-- Foreign keys, unique booking references, positive room/guest/price checks, and `check_out > check_in` are enforced by the schema. Flyway migrations are append-only.
+The frontend shows an estimated stay total for convenience. The backend reads the room's current nightly price, checks capacity, and calculates the authoritative total when it creates a booking.
+
+## Database design
+
+- `hotels` stores each stay's name, city, country, description, and amenities. Amenities are stored as a MySQL JSON array.
+- `rooms` belongs to one hotel and stores the room category's nightly price, physical unit capacity, and maximum guest count. A hotel can have multiple room categories.
+- `bookings` belongs to one room category and stores guest details, dates, guest count, the total at booking time, a unique reference, and status (`CONFIRMED` or `CANCELLED`). Each booking reserves one unit of its room category.
+
+Foreign keys prevent orphan rooms and bookings. The schema also enforces unique room names within a hotel, unique booking references, positive prices/capacity/guest counts, valid booking dates, nonnegative totals, and the supported booking statuses. The room/date/status index supports overlap checks. Migrations in `backend/src/main/resources/db/migration/` are append-only; `V1` creates the schema and `V2` seeds five hotels and their room categories.
 
 ## API design
 
-- `GET /api/hotels` searches by partial city or country name. Supplying both ISO `checkIn` and `checkOut` returns availability for that interval.
-- `GET /api/hotels/{id}` returns a hotel's description, amenities, rooms, and (when dates are supplied) availability.
-- `POST /api/bookings` creates a reservation from `roomId`, guest name/email, dates, and guest count. It returns a confirmation with a generated reference and server-calculated total.
-- `GET /api/bookings?reference=...&email=...` retrieves a reservation. Both values are required so the reference alone does not disclose booking information.
-- `POST /api/bookings/cancel` accepts the same reference/email pair and marks the reservation cancelled. Repeating a cancellation returns the cancelled booking.
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/health` | Return API health status. |
+| `GET /api/hotels?location=&checkIn=&checkOut=` | List all hotels or filter by partial, case-insensitive city/country; optional dates add room availability. Both dates must be supplied together. |
+| `GET /api/hotels/{id}?checkIn=&checkOut=` | Return one hotel's details, rooms, and optional date-aware availability. |
+| `POST /api/bookings` | Validate and create one room booking; return a unique reference and server-calculated total. |
+| `GET /api/bookings?reference=...&email=...` | Retrieve a booking using its reference and the email supplied at booking. |
+| `POST /api/bookings/cancel` | Verify the same reference/email pair and cancel the booking. |
+| `POST /api/itinerary/pace-check` | Compare up to 14 itinerary days per request with the selected sightseeing time. The frontend batches longer stays. |
 
-Invalid input and booking rules return a JSON error with a readable `message`; missing hotel/booking resources return 404.
+Booking and hotel validation errors return HTTP 400 with a JSON `error` and readable `message`; unknown hotels or bookings return HTTP 404. Successful booking creation returns HTTP 201. Request records apply field validation before the service layer runs. Interactive API documentation is available at `/swagger-ui.html` while the backend is running.
 
-## Booking logic and overlap assumptions
+## Booking rules and assumptions
 
-Check-in must be today or later, check-out must be strictly after check-in, and both dates describe a half-open interval `[check-in, check-out)`. Therefore, a guest checking out on a date does not overlap a new guest checking in on that same date. Each reservation holds exactly one room unit, including reservations for multiple guests. Guest count cannot exceed the room's maximum occupancy.
+- Check-in cannot be earlier than the server's current date. Check-out must be later than check-in.
+- Stays use a half-open interval `[check-in, check-out)`. A guest checking out on a date does not overlap a new guest checking in on that date.
+- A booking reserves one room unit regardless of guest count. The guest count must fit within that room category's maximum occupancy.
+- The server calculates `nightly price × number of nights` from the database price. The client cannot supply or override the total. The booking stores that total so later price changes do not rewrite a past booking.
+- Availability counts only confirmed bookings that overlap the requested dates. Cancelling changes the status to `CANCELLED`, releasing that unit for the affected dates. Repeating a cancellation returns the cancelled booking.
+- Booking lookup requires both the reference and guest email; matching is case-insensitive after trimming and normalization. This is a lightweight assignment-level check, not full account authentication.
 
-The server counts confirmed reservations whose intervals overlap the requested interval. Before creating a reservation it takes a pessimistic write lock on the room row, then checks the count and saves the booking in the same transaction. Requests competing for the last room serialize on that lock: after the first commits, the next request recounts and is rejected if capacity is full. Cancelled reservations do not count toward availability, so cancellation releases the unit. Prices are multiplied by the number of nights using the room's database price; clients cannot send or override a total.
+## Simultaneous bookings
+
+Creating or cancelling a booking runs in a database transaction and obtains a pessimistic write lock on the room row. The service counts overlapping confirmed bookings while holding the lock, then saves the booking. Requests for the same room are serialized: after one request commits the last unit, the next request recounts reservations and is rejected if capacity is full. This prevents two requests from both claiming the last unit. The trade-off is that bookings for the same room category wait on one another even when their date ranges do not overlap. A higher-volume system could lock inventory per room and night or use a dedicated allocation table.
 
 ## Design decisions and trade-offs
 
-- Room row locking is simple and effective for this small catalogue and prevents concurrent requests from both claiming the final unit. It serializes reservations for the same room even when dates do not overlap; a more scalable design could lock inventory by room and night or use a dedicated allocation table.
-- A booking stores its total so a later nightly price change does not alter an existing reservation's charged amount.
-- Reference plus email is a lightweight retrieval check appropriate for the assignment. Production booking management should use stronger identity verification, rate limits, audit logging, and privacy controls.
-- The frontend shortlist is an opt-in convenience feature stored only in browser `localStorage`; it is not a server-side saved list and does not require authentication.
+- The sample inventory is represented by a room category's `total_units`, rather than a separate database row for each physical room. This keeps the assignment model small while supporting multiple units and room categories.
+- The reservation lock is straightforward and protects the capacity check, but reduces concurrency for unrelated dates in the same category.
+- Reference plus email keeps lookup simple without implementing accounts. A production system should add stronger identity verification, rate limiting, audit logging, and privacy controls.
+- The saved-stays shortlist is stored in browser `localStorage`; it is private to that browser and does not need an account or database migration.
+- Seasonal and sightseeing suggestions are curated sample data for the five seeded destinations. They are useful trip-planning context, not live venue hours, route estimates, weather, or safety advice.
 
-## Surprise feature: trip-ready confirmation
+## Surprise feature
+## Surprise element
 
-After a booking, the confirmation doubles as a trip-ready card with the dates, nights, guests, total, and reference. For each seeded destination it suggests popular sights, distributes them across the booked nights, and compares the dates with typical preferred travel months. The guide links to official tourism sources. It is static seasonal context, not a live weather forecast or a guarantee that venues are open; travelers should check current local conditions and hours.
+1. what the feature does
 
-The browser-local saved-stays shortlist is the starting point for comparison. From “Saved stays,” a traveler can opt into comparison, select two or three saved hotels, and view location, room, nightly price, estimated stay total, availability, and amenities side by side. Neither feature needs a database migration or account system.
+This feature provides guests with a well-planned itinerary after their booking has been confirmed. It will suggest places to see, how long you should spend there, seasonality advice and how fast you will be travelling. Guests can choose how many hours they want to spend sightseeing each day.
 
-## Limitations and possible next steps
+2. why you chose it
 
-- There is no authentication, payment processing, admin interface, or user account history.
-- The shortlist is browser-local and does not sync across devices.
-- Inventory counts bookings, with one room unit per reservation. Multiple rooms in one booking and per-night variable inventory are not supported.
-- Backend unit tests cover server-side pricing, full capacity, and invalid check-out dates. Run them with `mvn test` before submission; Maven was not available in the implementation environment.
-- Capture screenshots or a short demo recording of search, booking confirmation, and cancellation for the submission.
-- Complete the approximate time-spent entry in `README.md` and publish the repository with public visibility when submitting.
+Booking confirmations typically just show transactional information. This feature will allow guests to start planning their holiday and know which days might be too busy.
+
+3. how did you implement?
+
+Frontend
+
+When a booking is confirmed, the React app will find the curated destination guide for the hotel city. An itinerary will then be created day-by-day using the check-in date and number of nights. This will give the guest suggestions on where to visit, how long to spend there, seasonality advice and tourism resources. When the available sightseeing hours change, the places to visit and times spent there each day will be sent to the backend pacing endpoint. The response will be shown to the user with estimates, pacing labels, and progress bars or an error if one occurs.
+
+Backend
+
+The Spring Boot itinerary controller checks that the request is valid and sends it to the pacing service. The service will calculate the total time spent visiting places and travelling between them. If there is no routing information, it will use an approximate time that can be configured. It will then add the configured meal and break buffer. Each day will be labelled as Relaxed, Balanced or Packed. This will return any warnings about overloading and suggestions. The frontend will combine this with the itinerary. The pacing endpoint can handle up to 14 days per request, so the frontend will group larger stays.
+
+4. Note
+
+The suggested destinations and seasonality notes are curated examples for each of the 5 destinations supported. They are not dynamic and will not be generated by AI or based on real time.
+
+## Automated checks
+
+`BookingServiceTest` covers server-side total calculation, a full-capacity rejection, and invalid check-out dates. `ItineraryPaceServiceTest` covers visit and transfer totals, pace categories, fallback estimates, and overload warnings. Run the backend tests from `backend/` with `mvn test`. Build and lint the React application from `frontend/` with `npm.cmd run build` and `npm.cmd run lint`.

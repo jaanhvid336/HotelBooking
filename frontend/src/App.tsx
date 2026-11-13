@@ -779,7 +779,6 @@ function App() {
               value={lookupReference}
               onChange={(event) => setLookupReference(event.target.value)}
             />
-            <small className="input-hint">Use the full code shown after booking, not the guest name.</small>
           </label>
           <label className="booking-input"><span>Email address</span><input required type="email" value={lookupEmail} onChange={(event) => setLookupEmail(event.target.value)} /></label>
           <button className="search-button" type="submit" disabled={isManagingBooking}>{isManagingBooking ? 'Looking up...' : 'Find booking'}</button>
